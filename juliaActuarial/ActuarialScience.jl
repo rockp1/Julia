@@ -52,7 +52,8 @@ using ImageView, Images
 
 # ltImage = imread("/home/rock/Documents/lifetable.png")
 # ltImage = imread("C://Documents/Meetup/juliaActuarial/lifetable.png")
-ltImage = imread("$path/pics/lifetable.png")
+# ltImage = imread("$path/pics/lifetable.png")
+ltImage = load("$path/pics/lifetable.png")
 ImageView.view(ltImage, pixelspacing = [1,1])
 
 using ExcelReaders
@@ -122,7 +123,8 @@ plotq(lt01)
 function ltadjust(lt, rf)
     nrows = size(lt, 1)
     ltadj = DataFrame(age = lt[:age], q = zeros(Float64,nrows), l = zeros(Float64,nrows), d = zeros(Float64,nrows));
-    ltadj[:q] = lt[:q] .* rf
+    # ltadj[:q] = lt[:q] .* rf
+    ltadj[:q] = 1 - ((1 - lt[:q]) .* rf)
     ltadj[1,:l] = 100000
     ltadj[1,:d] = ltadj[1, :q] * ltadj[1,:l]
     for i = 2:nrows
@@ -135,9 +137,11 @@ end
 
 # Create a risk factor multiplier for condition 'a'
 rfa = ones(Float64, 101)
-rfa[31:70] = 1 + (0.25/40) * (1:40)
-rfa[71:80] = 1.25 - (0.25/10) * (1:10)
-ytk = Array(1.00:0.05:1.40)
+# rfa[31:70] = 1./(1 + (0.25/40) * (1:40))
+# rfa[71:80] = 1./(1.25 - (0.25/10) * (1:10))
+rfa[31:70] = 1./(1 + (0.005/40) * (1:40))
+rfa[71:80] = 1./(1.005 - (0.005/10) * (1:10))
+ytk = Array(0.98:0.005:1.01)
 
 prf = plot(
 x = 0:100,
@@ -147,7 +151,7 @@ Stat.yticks(ticks=ytk),
 Theme(panel_fill=HSL(240,.24,.93), grid_color=colorant"grey", minor_label_font_size=8pt, 
 major_label_font_size=12pt, line_width=2pt, default_color=colorant"orange"),
 Geom.line,
-Guide.ylabel("Risk (q x Multiple)"),
+Guide.ylabel("Risk"),
 Guide.xlabel("Age"),
 Guide.xticks(orientation=:vertical),
 Guide.title("Age-dependent Risk Factor")
@@ -170,18 +174,15 @@ end
 0
 
 tlp4030 = TermPolicy(40, 30, 7500, 300000)
-intRate = (0.05, 0.04)
-# np = 1  # Number of Policies
-# r = 0.05  # Interest rate
-# rsd = 0.04  # Standard Deviation of interest rate
+returnRate = (0.05, 0.04) # Mean and StDev of Return
 
-function make_tlpdf(tlpolicy, lifetable, intRate)
+function make_tlpdf(tlpolicy, lifetable, returnRate)
     """Returns a dataframe for a Term Life Policy and a lifetable of type DataFrame"""
     premium = tlpolicy.premium  # Premium
     claim = tlpolicy.claim  # Claim
     sa = tlpolicy.startAge
     dur = tlpolicy.duration
-    r = intRate[1]
+    r = returnRate[1]
     TLP = DataFrame(year = 0:dur, discount = zeros(Float64,dur+1), probC = zeros(Float64,dur+1), 
     PVClaim = zeros(Float64,dur+1), probP = zeros(Float64,dur+1), PVPremium = zeros(Float64,dur+1),
     EPVFutureC = zeros(Float64,dur+1), EPVFutureP = zeros(Float64,dur+1), expRes = zeros(Float64,dur+1));  # DF for Term-Life Policy
@@ -197,7 +198,7 @@ function make_tlpdf(tlpolicy, lifetable, intRate)
     TLP
 end
 
-tlpDF = make_tlpdf(tlp4030, lt01, intRate)
+tlpDF = make_tlpdf(tlp4030, lt01, returnRate)
 head(tlpDF)
 # head(tlpDF[:EPVFutureC])
 # tail(tlpDF[:expRes])
@@ -229,13 +230,13 @@ Guide.title("Expected Present Value of Future Premiums and Claims")
 draw(SVG(7inch, 5inch), plotEPVFuturePC)
 # draw(PNG("EPVFuturePCs.png", 12cm, 8cm), plotEPVFuturePC)
 
-function make_wlpdf(WLPolicy, lifetable, intRate)
+function make_wlpdf(WLPolicy, lifetable, returnRate)
     """Returns a dataframe for a Whole Life Policy and a lifetable of type DataFrame"""
     premium = WLPolicy.premium  # Premium
     claim = WLPolicy.claim  # Claim
     sa = WLPolicy.startAge
     dur = 101 - sa
-    r = intRate[1]
+    r = returnRate[1]
     WLP = DataFrame(year = 0:dur, discount = zeros(Float64,dur+1), probC = zeros(Float64,dur+1), 
     PVClaim = zeros(Float64,dur+1), probP = zeros(Float64,dur+1), PVPremium = zeros(Float64,dur+1),
     EPVFutureC = zeros(Float64,dur+1), EPVFutureP = zeros(Float64,dur+1), expRes = zeros(Float64,dur+1));  # DF for Term-Life Policy
@@ -252,18 +253,18 @@ end
 0
 
 wlp40 = WholePolicy(40, 2500, 300000)
-irWLP = (0.06, 0.075)  # Interest Rate Tuple of (mean, stdDev)
-wlpDF = make_wlpdf(wlp40, lt01, irWLP)
+rWLP = (0.06, 0.075)  # Return Rate Tuple of (mean, stdDev)
+wlpDF = make_wlpdf(wlp40, lt01, rWLP)
 wlpDF[end-6:end-1,:]
 
-function simWLP(WLPolicy, lifetable, intRate, nSim)
+function simWLP(WLPolicy, lifetable, returnRate, nSim)
     """Returns Actual and Expected Reserves Dataframes"""
     premium = WLPolicy.premium 
     claim = WLPolicy.claim
     sa = WLPolicy.startAge
     dur = 101 - sa
-    r = intRate[1]
-    rsd = intRate[2]
+    r = returnRate[1]
+    rsd = returnRate[2]
     
     NPol = Array{Int64}(nSim, dur)
     MeanDeaths = Array{Float64}(nSim, dur)
@@ -316,8 +317,8 @@ end
 
 0
 
-function plotEndingAR(wlp, lt, ir, nSim)
-    actualResArr, excessResArr, prSuff = simWLP(wlp, lt, ir, nSim)
+function plotEndingAR(wlp, lt, rr, nSim)
+    actualResArr, excessResArr, prSuff = simWLP(wlp, lt, rr, nSim)
     percentExcessArr = (excessResArr ./ (actualResArr[:,2:end-1] .- excessResArr)) * 100
     meanPercentExcess = mean(percentExcessArr, 1)
     
@@ -347,13 +348,13 @@ Guide.title("Mean Percentage Excess")
 0
 
 wlp40 = WholePolicy(40, 2500, 200000)
-irWLP = (0.06, 0.075)  # Interest Rate Tuple of (mean, stdDev)
+rWLP = (0.06, 0.075)  # Interest Rate Tuple of (mean, stdDev)
 np = 10000  # Number of Policies
 nSim = 200 # Number of Simulations
 
-plotEndingAR(wlp40, lt01, irWLP, nSim)
+plotEndingAR(wlp40, lt01, rWLP, nSim)
 
-function calcPremium(minProbSuff, policy, lifetable, irTup, nSim)
+function calcPremium(minProbSuff, policy, lifetable, rr, nSim)
     """Returns the minimum premium that satisfies a probability of sufficiency"""
     # Using binary search
     claim = policy.claim
@@ -362,7 +363,7 @@ function calcPremium(minProbSuff, policy, lifetable, irTup, nSim)
     premLo = 0
     while premHi - premLo > claim / 100000
         wlp = WholePolicy(sa, (premHi+premLo)/2, claim)
-        actualResArr, excessResArr, ps = simWLP(wlp, lifetable, irTup, nSim)
+        actualResArr, excessResArr, ps = simWLP(wlp, lifetable, rr, nSim)
         if ps > minProbSuff
             premHi = wlp.premium
         else
@@ -374,9 +375,9 @@ end
 0
 
 wlp40 = WholePolicy(40, 2500, 200000)
-irWLP = (0.06, 0.075)  # Interest Rate Tuple of (mean, stdDev)
+rWLP = (0.06, 0.075)  # Interest Rate Tuple of (mean, stdDev)
 nSim = 200 # Number of Simulations
-premium = calcPremium(0.8, wlp40, lt01, irWLP, nSim)
+premium = calcPremium(0.8, wlp40, lt01, rWLP, nSim)
 @printf("Estimated Premium = %6.2f", premium)
 
 # using Immerse
@@ -414,7 +415,7 @@ plotCompareSurv(lt01, lta)
 
 # Calculate Premiums for Base case and Risk Case
 probSuff = 0.8
-prBase = calcPremium(probSuff, wlp40, lt01, irWLP, nSim)
-prRisk = calcPremium(probSuff, wlp40, lta, irWLP, nSim)
+prBase = calcPremium(probSuff, wlp40, lt01, rWLP, nSim)
+prRisk = calcPremium(probSuff, wlp40, lta,rWLP, nSim)
 #(prBase, prRisk)
 @printf("Premium Base = %6.2f, Premium Risk = %6.2f", prBase, prRisk)
