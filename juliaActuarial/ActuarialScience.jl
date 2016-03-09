@@ -43,7 +43,20 @@ function hazard_GM(a, b, l)
     Guide.title("GM Failure Distribution (pdf)")
     )
     
-    draw(SVG(9inch, 4inch), hstack(ppdf, phaz))
+    psurv = plot(
+    x = age,
+    y = 1 - cdf,
+    Stat.xticks(ticks=[0, 20, 40, 60, 80, 100]),
+    Theme(panel_fill=HSL(240,.24,.93), grid_color=colorant"grey", minor_label_font_size=8pt, 
+    major_label_font_size=12pt, line_width=2pt, default_color=colorant"green"),
+    Geom.line,
+    Guide.ylabel("cdf"),
+    Guide.xlabel("Age"),
+    Guide.xticks(orientation=:vertical),
+    Guide.title("GM Survival Function (cdf)")
+    )
+    
+    draw(SVG(10inch, 3inch), hstack(phaz, ppdf, psurv))
 end
 
 hazard_GM(2e-5, 0.085, 5e-4)
@@ -53,7 +66,7 @@ using ImageView, Images
 # ltImage = imread("/home/rock/Documents/lifetable.png")
 # ltImage = imread("C://Documents/Meetup/juliaActuarial/lifetable.png")
 # ltImage = imread("$path/pics/lifetable.png")
-ltImage = load("$path/pics/lifetable.png")
+ltImage = imread("$path/pics/lifetable.png")
 ImageView.view(ltImage, pixelspacing = [1,1])
 
 using ExcelReaders
@@ -120,21 +133,6 @@ end
 
 plotq(lt01)
 
-function ltadjust(lt, rf)
-    nrows = size(lt, 1)
-    ltadj = DataFrame(age = lt[:age], q = zeros(Float64,nrows), l = zeros(Float64,nrows), d = zeros(Float64,nrows));
-    # ltadj[:q] = lt[:q] .* rf
-    ltadj[:q] = 1 - ((1 - lt[:q]) .* rf)
-    ltadj[1,:l] = 100000
-    ltadj[1,:d] = ltadj[1, :q] * ltadj[1,:l]
-    for i = 2:nrows
-        ltadj[i,:l] = ltadj[i-1,:l] - ltadj[i-1,:d]
-        ltadj[i,:d] = ltadj[i,:l] * ltadj[i, :q]
-    end
-    ltadj
-end
-0
-
 # Create a risk factor multiplier for condition 'a'
 rfa = ones(Float64, 101)
 # rfa[31:70] = 1./(1 + (0.25/40) * (1:40))
@@ -159,6 +157,21 @@ Guide.title("Age-dependent Risk Factor")
 
 draw(SVG(7inch, 3inch), prf)
 
+function ltadjust(lt, rf)
+    nrows = size(lt, 1)
+    ltadj = DataFrame(age = lt[:age], q = zeros(Float64,nrows), l = zeros(Float64,nrows), d = zeros(Float64,nrows));
+    # ltadj[:q] = lt[:q] .* rf
+    ltadj[:q] = 1 - ((1 - lt[:q]) .* rf)
+    ltadj[1,:l] = 100000
+    ltadj[1,:d] = ltadj[1, :q] * ltadj[1,:l]
+    for i = 2:nrows
+        ltadj[i,:l] = ltadj[i-1,:l] - ltadj[i-1,:d]
+        ltadj[i,:d] = ltadj[i,:l] * ltadj[i, :q]
+    end
+    ltadj
+end
+0
+
 type TermPolicy
     startAge::Int
     duration::Int
@@ -170,6 +183,8 @@ type WholePolicy
     startAge::Int
     premium::Float64
     claim::Float64
+    
+    WholePolicy(startAge, premium, claim) = ((startAge <= 0) || (startAge > 100)) ? error("age not valid") : new(startAge, premium, claim)
 end
 0
 
@@ -253,7 +268,7 @@ end
 0
 
 wlp40 = WholePolicy(40, 2500, 300000)
-rWLP = (0.06, 0.075)  # Return Rate Tuple of (mean, stdDev)
+rWLP = (0.06, 0.075) # Return Rate Tuple of (mean, stdDev)
 wlpDF = make_wlpdf(wlp40, lt01, rWLP)
 wlpDF[end-6:end-1,:]
 
@@ -284,7 +299,7 @@ function simWLP(WLPolicy, lifetable, returnRate, nSim)
     
     # Calculate Expected Reserves
     ExpResArr = zeros(nSim, dur)
-    wlpDF = make_wlpdf(WLPolicy, lifetable, intRate)  # Contains expRes column for ONE policy
+    wlpDF = make_wlpdf(WLPolicy, lifetable, returnRate)  # Contains expRes column for ONE policy
     for i = 1:nSim
         ExpResArr[i,:] = NPol[i,:] .* (wlpDF[1:end-1, :expRes])'
     end
@@ -348,7 +363,7 @@ Guide.title("Mean Percentage Excess")
 0
 
 wlp40 = WholePolicy(40, 2500, 200000)
-rWLP = (0.06, 0.075)  # Interest Rate Tuple of (mean, stdDev)
+rWLP = (0.06, 0.075)  # Return Rate Tuple of (mean, stdDev)
 np = 10000  # Number of Policies
 nSim = 200 # Number of Simulations
 
@@ -416,6 +431,6 @@ plotCompareSurv(lt01, lta)
 # Calculate Premiums for Base case and Risk Case
 probSuff = 0.8
 prBase = calcPremium(probSuff, wlp40, lt01, rWLP, nSim)
-prRisk = calcPremium(probSuff, wlp40, lta,rWLP, nSim)
+prRisk = calcPremium(probSuff, wlp40, lta, rWLP, nSim)
 #(prBase, prRisk)
 @printf("Premium Base = %6.2f, Premium Risk = %6.2f", prBase, prRisk)
